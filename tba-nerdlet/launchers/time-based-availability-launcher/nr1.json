@@ -1,0 +1,7 @@
+{
+    "schemaType": "LAUNCHER",
+    "id": "time-based-availability-launcher",
+    "displayName": "Synthetic Time Based Availability",
+    "description": "Synthetic Time Based Availability",
+    "rootNerdletId": "time-based-availability-nerdlet"
+}

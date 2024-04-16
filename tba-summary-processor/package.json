@@ -1,0 +1,19 @@
+{
+  "name": "replaced-by-user-input",
+  "description": "replaced-by-user-input",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "axios": "^0.21.0",
+    "moment": "^2.29.1"
+  },
+  "devDependencies": {
+    "jest": "^24.7.1"
+  },
+  "scripts": {
+    "test": "jest"
+  },
+  "main": "main.js",
+  "author": "",
+  "license": "ISC"
+}
