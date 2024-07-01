@@ -127,12 +127,17 @@ export default class TimeBasedAvailabilityNerdletNerdlet extends React.Component
             //Load synhtetic check information
             let checks= await this.loadData(chosenAccount,`FROM SyntheticCheck select location, result, custom.muteStatus  as muteStatus where monitorId='${monitor.monitorId}' limit max`,beginTime,endTime,locationsArray);
 
+
+            // initiate blended location
+            thisMonitorData.locations["blended"]={rawResults: []};
+
             //Compose the object of checks by location
             checks.forEach((check)=>{
                 if(!thisMonitorData.locations[check.location]) {
                     thisMonitorData.locations[check.location]={rawResults: []};
                 }
                 thisMonitorData.locations[check.location].rawResults.push({result: check.result, timestamp:check.timestamp, muteStatus: check.muteStatus});
+                thisMonitorData.locations["blended"].rawResults.push({result: check.result, timestamp:check.timestamp, muteStatus: check.muteStatus});
             })
             
             //sort the records so that the oldest come first
@@ -147,6 +152,8 @@ export default class TimeBasedAvailabilityNerdletNerdlet extends React.Component
         //search for all overlapping outtage windows (by location)
         monitorData.forEach(monitor=>{
             for(const loc in monitor.locations) {
+                
+
                 monitor.locations[loc].downPeriods=[];
                 monitor.locations[loc].statePeriods=[];
 
@@ -167,7 +174,7 @@ export default class TimeBasedAvailabilityNerdletNerdlet extends React.Component
                     if(check.timestamp > monitor.lastEntry || monitor.lastEntry === undefined ) {
                         monitor.lastEntry = check.timestamp
                     }
-         
+        
                     // look for muted state
                     let checkState=check.result;
                     if(check.muteStatus===null ) {
@@ -191,6 +198,7 @@ export default class TimeBasedAvailabilityNerdletNerdlet extends React.Component
                     }
 
                 })
+            
             }
         })
 
@@ -198,7 +206,7 @@ export default class TimeBasedAvailabilityNerdletNerdlet extends React.Component
         monitorData.forEach(monitor=>{
             monitor.overlapPeriods=[];
             let locations = Object.keys(monitor.locations);
-            for (const location of locations) {
+            for (const location of locations.filter((l)=>{return l != "blended"})) { //the blended location is ignored for multi-location overlap
                 let otherLocations=locations.filter(loc=>{return loc!=location}) ;// remove the current location from list of others
     
                 monitor.locations[location].statePeriods.forEach((period)=>{ //iterate over this locations outages and search for overlaps in others
@@ -275,7 +283,6 @@ export default class TimeBasedAvailabilityNerdletNerdlet extends React.Component
             days = (endTime-beginTime) / (60*60*24*1000);
         if(days > MAX_DAYS_TO_DISPLAY) { days=MAX_DAYS_TO_DISPLAY; console.error(`Days window limited to ${MAX_DAYS_TO_DISPLAY}`);}
             numberPromises=days;
-            console.log("Days",days)
         }
 
         //generate query for each day
@@ -424,8 +431,8 @@ export default class TimeBasedAvailabilityNerdletNerdlet extends React.Component
 
        
                 // Process location summary infomration
+                let blendedLocation=null;
                 for (const loc in monitor.locations) {
-
                     let location = loc;
                     let statePeriods=monitor.locations[location].statePeriods;
 
@@ -476,7 +483,7 @@ export default class TimeBasedAvailabilityNerdletNerdlet extends React.Component
                     monitor.locations[loc].statePeriods.forEach((outage,idx)=>{
                         let left=leftOffset + ((outage.start-monitor.firstEntry) * pixelRatio);
                         left = left < leftOffset ? leftOffset: left; //can be negative if its first entry of the day
-                        console.log("Last one?",monitor.lastEntry,monitor.locations[loc].statePeriods.length==idx+1 );
+                        //console.log("Last one?",monitor.lastEntry,monitor.locations[loc].statePeriods.length==idx+1 );
 
                         let width=outage.duration * pixelRatio
                         let durationHuman=moment.duration(outage.duration).humanize()
@@ -485,19 +492,28 @@ export default class TimeBasedAvailabilityNerdletNerdlet extends React.Component
                         outages.push(<Tooltip text={toolTipMessage}><div style={{backgroundColor:STATE_COLOURS[outage.state], left: `${left}px`, width:`${width}px`}} className="outage"></div></Tooltip>)
                     });
 
+                    if(location=="blended") { //special treatment for blended row to add it to the bottom
+                        blendedLocation = <div className="monitorStripContainer">
+                                            <div className="monitorStrip" style={{width:`${chartWidthPx}px`}}>
+                                             <span className="monitorLocationLabel" style={{width:`${leftOffset-20}px`}}>BLENDED (All locations)</span>
+                                            {outages}
+                                            </div>
+                                        </div>;
+                     } else {
+                        //add location row to chart
+                        let chart=<div className="monitorStrip" style={{width:`${chartWidthPx}px`}}>
+                            <span className="monitorLocationLabel" style={{width:`${leftOffset-20}px`}}>{loc}</span>
+                            {outages}
+                        </div>;
 
-                    //add location row to chart
-                    let chart=<div className="monitorStrip" style={{width:`${chartWidthPx}px`}}>
-                        <span className="monitorLocationLabel" style={{width:`${leftOffset-20}px`}}>{loc}</span>
-                        {outages}
-                    </div>;
-
-                    locationStrips.push(<div className="monitorStripContainer">
-                        {chart}
-                    </div> );
-
+                        locationStrips.push(<div className="monitorStripContainer">
+                            {chart}
+                        </div> );
+                    }
                 }
-
+                if(blendedLocation!=null) {
+                    locationStrips.push(blendedLocation);
+                }
                 // Construct render for the individual location summaries
                 let locationSummaryBlocks=[];
                 locationSummary.forEach(location => {
@@ -532,9 +548,11 @@ export default class TimeBasedAvailabilityNerdletNerdlet extends React.Component
                     let totalFailedDuration=`${Math.floor(moment.duration(location.failedDuration).asHours())}h ${moment.duration(location.failedDuration).minutes()}m ${moment.duration(location.failedDuration).seconds()}s `;
                     let percentAvailable=location.percentAvailable;
 
+                    const locationTitle=location.location!="blended" ? `${location.location} Location` : `Blended locations (All locations serialised)`;
+                    const locationIcon= location.location!="blended" ? Icon.TYPE.LOCATION__LOCATION__PIN : Icon.TYPE.INTERFACE__STATE__PUBLIC;
                     locationSummaryBlocks.push(
                         <div className="summaryTable">
-                            <HeadingText type={HeadingText.TYPE.HEADING_3}><Icon type={Icon.TYPE.LOCATION__LOCATION__PIN} /> {location.location} Location</HeadingText><br />
+                            <HeadingText type={HeadingText.TYPE.HEADING_3}><Icon type={locationIcon} /> {locationTitle} </HeadingText><br />
                             <div>Availability: {percentAvailable}</div>
                             <div>Run time: {totalDurations}</div>
                             <div>Failed: {totalFailedDuration} ({location.failedCount} occurences)</div><br />
@@ -579,7 +597,7 @@ export default class TimeBasedAvailabilityNerdletNerdlet extends React.Component
              
                     </div>
                     <div className="summaryTable">
-                    <HeadingText type={HeadingText.TYPE.HEADING_3}><Icon type={Icon.TYPE.INTERFACE__STATE__PUBLIC} /> Multi Location Overlap</HeadingText><br />
+                    <HeadingText type={HeadingText.TYPE.HEADING_3}><Icon type={Icon.TYPE.HARDWARE_AND_SOFTWARE__SOFTWARE__MONITORING} /> Multi Location Overlap</HeadingText><br />
                         <div>{`Availability: ${percentAvailable.toFixed(2)}%`}</div>
                         <div>{`Unavailable for ${durationHuman} (${durationHHMMSS} or ${durationSeconds} seconds)`}</div>
                         <TableChart data={tableData} style={{width:"100%",minWidth:"30em", maxWidth:"80em"}}  />
