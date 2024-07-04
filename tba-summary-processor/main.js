@@ -1,12 +1,14 @@
 // Configuration options ----------------------------------
 
 // Ingest API key and account ID (for recording data)
-let INSIGHTS_WRITE_APIKEY="...FFFFNRAL" 
-let INSIGHTS_WRITE_ACCOUNTID="12345" //(this is where the data goes)
+let INSIGHTS_WRITE_APIKEY="...FFFFNRAL" ;
+let INSIGHTS_WRITE_ACCOUNTID="12345"; //(this is where the data goes)
+const INSIGHTS_REGION = "US"; // US or EU
 
 // User API Key and account ID (for gathering data)
-let GQL_APIKEY= "NRAK-..." 
-let ACCOUNTID="12345" //(this is where the data comes from unless overidden)
+let GQL_APIKEY= "NRAK-..." ;
+let ACCOUNTID="12345"; //(this is where the data comes from unless overidden)
+const GQL_REGION="US"  // US or EU
 
 //Restriction on which monitors to process (can be blank or any valid NRQL where clause)
 const MONITOR_FILTER_CLAUSE="where monitorName='YourMonitorId'"; // e.g. "where monitorName='MyMonitorToProcess'"
@@ -21,6 +23,9 @@ let ACCOUNT_NAME="Not Set" //
 
 const axios = require('axios');
 const moment = require('moment');
+
+const INSIGHTS_COLLECTOR = INSIGHTS_REGION == "EU"? "insights-collector.eu01.nr-data.net" : "insights-collector.newrelic.com";
+const GRAPHQL_API = GQL_REGION == "EU" ? "api.eu.newrelic.com" : "api.newrelic.com";
 
 const STATES = {
     SUCCESS_NOTMUTED: 'SUCCESS_NOTMUTED',
@@ -111,7 +116,7 @@ async function sendDataToNR(eventType,data) {
             return event
         })
         console.log(`Sending ${payload.length} events of type ${eventType} to NR`)
-        await axios.post(`https://insights-collector.newrelic.com/v1/accounts/${INSIGHTS_WRITE_ACCOUNTID}/events`,
+        await axios.post(`https://${INSIGHTS_COLLECTOR}/v1/accounts/${INSIGHTS_WRITE_ACCOUNTID}/events`,
         payload
             ,{
             headers: {
@@ -158,7 +163,7 @@ async function NRGQLQuery(nrql,accountId,combineData=false) {
 
     const payload={ query: gqlQuery}
     let returnData=null
-    await axios.post(`https://api.newrelic.com/graphql`,
+    await axios.post(`https://${GRAPHQL_API}/graphql`,
             payload,
             {
                 headers: {
@@ -722,7 +727,7 @@ async function processSyntheticData(days,forDate) {
 const run = async () => {
 
     await processSyntheticData(1);      // process last days data
-    await processSummaryData(false);    // generate summary
+    //await processSummaryData(false);    // generate summary
     
 
     // await processSyntheticData(1,'20240702'); // re-run for specific date (or rather the day before!)
