@@ -1,12 +1,14 @@
 // Configuration options ----------------------------------
 
 // Ingest API key and account ID (for recording data)
-let INSIGHTS_WRITE_APIKEY="...FFFFNRAL" 
-let INSIGHTS_WRITE_ACCOUNTID="12345" //(this is where the data goes)
+let INSIGHTS_WRITE_APIKEY="...FFFFNRAL" ;
+let INSIGHTS_WRITE_ACCOUNTID="12345"; //(this is where the data goes)
+const INSIGHTS_REGION = "US"; // US or EU
 
 // User API Key and account ID (for gathering data)
-let GQL_APIKEY= "NRAK-..." 
-let ACCOUNTID="12345" //(this is where the data comes from unless overidden)
+let GQL_APIKEY= "NRAK-..." ;
+let ACCOUNTID="12345"; //(this is where the data comes from unless overidden)
+const GQL_REGION="US"  // US or EU
 
 //Restriction on which monitors to process (can be blank or any valid NRQL where clause)
 const MONITOR_FILTER_CLAUSE="where monitorName='YourMonitorId'"; // e.g. "where monitorName='MyMonitorToProcess'"
@@ -21,6 +23,9 @@ let ACCOUNT_NAME="Not Set" //
 
 const axios = require('axios');
 const moment = require('moment');
+
+const INSIGHTS_COLLECTOR = INSIGHTS_REGION == "EU"? "insights-collector.eu01.nr-data.net" : "insights-collector.newrelic.com";
+const GRAPHQL_API = GQL_REGION == "EU" ? "api.eu.newrelic.com" : "api.newrelic.com";
 
 const STATES = {
     SUCCESS_NOTMUTED: 'SUCCESS_NOTMUTED',
@@ -111,7 +116,7 @@ async function sendDataToNR(eventType,data) {
             return event
         })
         console.log(`Sending ${payload.length} events of type ${eventType} to NR`)
-        await axios.post(`https://insights-collector.newrelic.com/v1/accounts/${INSIGHTS_WRITE_ACCOUNTID}/events`,
+        await axios.post(`https://${INSIGHTS_COLLECTOR}/v1/accounts/${INSIGHTS_WRITE_ACCOUNTID}/events`,
         payload
             ,{
             headers: {
@@ -158,7 +163,7 @@ async function NRGQLQuery(nrql,accountId,combineData=false) {
 
     const payload={ query: gqlQuery}
     let returnData=null
-    await axios.post(`https://api.newrelic.com/graphql`,
+    await axios.post(`https://${GRAPHQL_API}/graphql`,
             payload,
             {
                 headers: {
@@ -206,7 +211,7 @@ async function asyncForEach(array, callback) {
 * processSummaryData()
 *
 * Proceses daily availability data to build monthly and weekly availability figures.
-* @param {string} forDate  - The date to process
+* @param {string} forDate  - The date to process, or false for default up to and including yesterday.
 */
 
 async function processSummaryData(forDate) {
@@ -237,7 +242,6 @@ async function processSummaryData(forDate) {
         queries.push({label: `batch_${batch}`, nrql: qry})
         //console.log(`Since: ${sinceDate}, Until ${untilDate} qry: ${qry}`);
     }
-
     const historicalDataDirty= await NRGQLQuery(queries,INSIGHTS_WRITE_ACCOUNTID,true) 
     const historicalData=historicalDataDirty.filter(e=>e.monitorName!=null) //remove null records casue by monitors not running in bucket
 
@@ -245,7 +249,7 @@ async function processSummaryData(forDate) {
     const monitorList = await NRGQLQuery([{label: "data", nrql: `SELECT count(*) as checks, latest(monitorName) as monitorName, latest(monitorId) as monitorId, uniqueCount(location) as locations from SyntheticCheck facet monitorId since 29 days ago until 1 day ago limit max  ${MONITOR_FILTER_CLAUSE}`}],ACCOUNTID,true)
 
     let monitorData=monitorList.map((monitor,idx)=>{
-        console.log(`Processing monitor: ${monitor.monitorName}`,monitor );
+        console.log(`Processing monitor: ${monitor.monitorName}` );
         let data={ ...monitor }
 
         data.historical=historicalData.filter((e)=>{return e.monitorId==monitor.monitorId})
@@ -392,8 +396,6 @@ async function processSyntheticData(days,forDate) {
         const locationsArray=locations[0] && locations[0].location ? locations[0].location : []
 
         let thisMonitorData={ name: monitor.monitorName, id: monitor.monitorId, locations:{} }
-        //let checks= await this.loadData(chosenAccount,`FROM SyntheticCheck select location, result where monitorId='${monitor.monitorId}' limit max`,dataDaysLookBack,locationsArray)
-
 
         //Break up into daily queries for each monitor (note that today isnt included so that only full days are considered)
         let numberPromises=dataDaysLookBack !== undefined ? dataDaysLookBack: 1
@@ -432,13 +434,16 @@ async function processSyntheticData(days,forDate) {
                 combinedSynthData=[...combinedSynthData, ...synthData[`queryData_${dayIndex}_${loc}`].results ]
             })
         
+            // initiate blended location
+            thisMonitorData.locations["blended"]={rawResults: []};
 
             //Add the data from this day to the accumulative monitor data
             combinedSynthData.forEach((check)=>{
                 if(!thisMonitorData.locations[check.location]) {
                     thisMonitorData.locations[check.location]={rawResults: []}
                 }
-                thisMonitorData.locations[check.location].rawResults.push({result: check.result, muteStatus: check.muteStatus,timestamp:check.timestamp})
+                thisMonitorData.locations[check.location].rawResults.push({result: check.result, muteStatus: check.muteStatus,timestamp:check.timestamp});
+                thisMonitorData.locations["blended"].rawResults.push({result: check.result, muteStatus: check.muteStatus,timestamp:check.timestamp});
             })
             //sort the records so that the oldest come first
             Object.keys(thisMonitorData.locations).forEach((location)=>{
@@ -465,7 +470,7 @@ async function processSyntheticData(days,forDate) {
             monitor.locations[loc].rawResults.forEach((check,idx)=>{
 
                 if(lastStateStart === null) { 
-                    lastStateStart=moment(check.timestamp).startOf('day').utc().valueOf(); //first result should be padded out to start of day
+                    lastStateStart=moment(check.timestamp).utc().startOf('day').valueOf(); //first result should be padded out to start of day
                 } 
                 
 
@@ -490,7 +495,7 @@ async function processSyntheticData(days,forDate) {
 
                     let endTimestamp=check.timestamp;
                     if(idx == (monitor.locations[loc].rawResults.length-1)) {
-                        endTimestamp=moment(check.timestamp).endOf('day').utc().valueOf() + 1; //last check of the day? then pad out to end of day.
+                        endTimestamp=moment(check.timestamp).utc().endOf('day').valueOf() + 1; //last check of the day? then pad out to end of day.
                     }
                     const duration=endTimestamp-lastStateStart;
                     monitor.locations[loc].statePeriods.push({start: lastStateStart, end: check.timestamp, duration: duration, state: currentState}); //record the previous state
@@ -509,8 +514,7 @@ async function processSyntheticData(days,forDate) {
     monitorData.forEach(monitor=>{
         monitor.overlapPeriods=[]
         let locations = Object.keys(monitor.locations)
-        for (const location of locations) {
-
+        for (const location of locations.filter((l)=>{return l != "blended"})) { //the blended location is ignored for multi-location overlap
             let otherLocations=locations.filter(loc=>{return loc!=location}) // remove the current location from list of others
             
             monitor.locations[location].statePeriods.forEach((period)=>{ //iterate over this locations outages and search for overlaps in others
@@ -723,11 +727,12 @@ async function processSyntheticData(days,forDate) {
 const run = async () => {
 
     await processSyntheticData(1);      // process last days data
-    await processSummaryData(false);    // generate summary
+    //await processSummaryData(false);    // generate summary
     
-    // await processSyntheticData(1,'20240327'); // re-run for specific date
-    // await processSyntheticData(1,'20240328');
-    // await processSyntheticData(1,'20240329');
+
+    // await processSyntheticData(1,'20240702'); // re-run for specific date (or rather the day before!)
+    // await processSyntheticData(1,'20240701');
+    // await processSyntheticData(1,'20240630');
     // await processSummaryData(false); 
 
 }

@@ -164,7 +164,7 @@ export default class TimeBasedAvailabilityNerdletNerdlet extends React.Component
                 monitor.locations[loc].rawResults.forEach((check,idx)=>{
 
                     if(lastStateStart === null) { 
-                        lastStateStart=moment(check.timestamp).startOf('day').utc().valueOf(); //first result might come in sometime after 00:00 so should be padded out back to start of day
+                        lastStateStart=moment(check.timestamp).utc().startOf('day').utc().valueOf(); //first result might come in sometime after 00:00 so should be padded out back to start of day
                     } 
 
                     //set the monitors first and last timestamps
@@ -186,7 +186,7 @@ export default class TimeBasedAvailabilityNerdletNerdlet extends React.Component
                     if(checkState!==currentState || idx == (monitor.locations[loc].rawResults.length-1)) { //ensure the last entry triggers a closure too regarldess of its result
                         let endTimestamp=check.timestamp;
                         if(idx == (monitor.locations[loc].rawResults.length-1)) {
-                            endTimestamp=moment(check.timestamp).endOf('day').utc().valueOf() + 1; //last check of the day? then pad out to end of day.
+                            endTimestamp=moment(check.timestamp).utc().endOf('day').valueOf() + 1; //last check of the day? then pad out to end of day.
                             check.timestamp=endTimestamp;
                         }
                         const duration=endTimestamp-lastStateStart;
