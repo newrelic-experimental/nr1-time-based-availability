@@ -21,9 +21,8 @@ let ACCOUNT_NAME="Not Set" //
 
 // End of configuration ---------------------------------
 
-const axios = require('axios');
+const got = require('got');
 const moment = require('moment');
-
 const INSIGHTS_COLLECTOR = INSIGHTS_REGION == "EU"? "insights-collector.eu01.nr-data.net" : "insights-collector.newrelic.com";
 const GRAPHQL_API = GQL_REGION == "EU" ? "api.eu.newrelic.com" : "api.newrelic.com";
 
@@ -47,63 +46,77 @@ const formatDuration = (duration) => {
     }
 }
 
-
-exports.lambdaHandler = async (event) => {
-  
-
-    if(event) {
-        if(event.insightsWriteAPIKey) {
-            INSIGHTS_WRITE_APIKEY = event.insightsWriteAPIKey
-        }
-        if(event.insightsWriteAccountID) {
-            INSIGHTS_WRITE_ACCOUNTID = event.insightsWriteAccountID
-        }
-        if(event.insightsReadAPIKey) {
-            GQL_APIKEY = event.insightsReadAPIKey
-        }
-        if(event.insightsReadAccountID) {
-            ACCOUNTID = event.insightsReadAccountID
-        }
-        if(event.insightsReadAccountName) {
-            ACCOUNT_NAME = event.insightsReadAccountName
-        }
-
-        if(event.sendDataToNR===false) {
-            SEND_DATA_TO_NR = false
-        }
-        if(event.NRDataTable) {
-            NR_DATA_TABLE = NRDataTable
-        }
-
-    }
- 
-    if(event && event.processSynthetics===true ) {
-        //by default we process yesterdays data for one day. but this can be overridden by the event to process a different date
-        if(event.date) {
-            console.log(`Processing data for ${event.date}`)
-            await processSyntheticData(1,event.date)
-        } else {
-            console.log("Processing data for yesterday To run for a different day you must supply an event like { \"date\": \"20201101\"}")
-            await processSyntheticData(1)
-        }
-    } else {
-        console.log("Synthetic result data will not be processed on this run.")
-    }
-
-    if(event && event.processSummary===true ) {
-        if(event.date) {
-            console.log(`Generating summary data for ${event.date}`) 
-            await processSummaryData(event.date)
-        } else {
-            console.log(`Generating summary data for yesterday`) 
-            await processSummaryData(false)
-        }
-    } else {
-        console.log("Summary data will not be processed on this run.")
-    }
-  
-    return 'End of script reached.';
+let RUNNING_LOCALLY=false;
+const IS_LOCAL_ENV = typeof $http === 'undefined';
+if (IS_LOCAL_ENV) {  
+    RUNNING_LOCALLY=true;
+    console.log("Running outside of a synhtetic monitor");
+} 
+const setAttribute = function(key,value) {
+    if(!RUNNING_LOCALLY) { //these only make sense when running on a minion
+        $util.insights.set(key,value);
+    } 
 }
+
+
+
+// Lambda handler, left in in case its useful
+// exports.lambdaHandler = async (event) => {
+  
+
+//     if(event) {
+//         if(event.insightsWriteAPIKey) {
+//             INSIGHTS_WRITE_APIKEY = event.insightsWriteAPIKey
+//         }
+//         if(event.insightsWriteAccountID) {
+//             INSIGHTS_WRITE_ACCOUNTID = event.insightsWriteAccountID
+//         }
+//         if(event.insightsReadAPIKey) {
+//             GQL_APIKEY = event.insightsReadAPIKey
+//         }
+//         if(event.insightsReadAccountID) {
+//             ACCOUNTID = event.insightsReadAccountID
+//         }
+//         if(event.insightsReadAccountName) {
+//             ACCOUNT_NAME = event.insightsReadAccountName
+//         }
+
+//         if(event.sendDataToNR===false) {
+//             SEND_DATA_TO_NR = false
+//         }
+//         if(event.NRDataTable) {
+//             NR_DATA_TABLE = NRDataTable
+//         }
+
+//     }
+ 
+//     if(event && event.processSynthetics===true ) {
+//         //by default we process yesterdays data for one day. but this can be overridden by the event to process a different date
+//         if(event.date) {
+//             console.log(`Processing data for ${event.date}`)
+//             await processSyntheticData(1,event.date)
+//         } else {
+//             console.log("Processing data for yesterday To run for a different day you must supply an event like { \"date\": \"20201101\"}")
+//             await processSyntheticData(1)
+//         }
+//     } else {
+//         console.log("Synthetic result data will not be processed on this run.")
+//     }
+
+//     if(event && event.processSummary===true ) {
+//         if(event.date) {
+//             console.log(`Generating summary data for ${event.date}`) 
+//             await processSummaryData(event.date)
+//         } else {
+//             console.log(`Generating summary data for yesterday`) 
+//             await processSummaryData(false)
+//         }
+//     } else {
+//         console.log("Summary data will not be processed on this run.")
+//     }
+  
+//     return 'End of script reached.';
+// }
 
 /*
 * Send data back to NR via api
@@ -116,20 +129,20 @@ async function sendDataToNR(eventType,data) {
             return event
         })
         console.log(`Sending ${payload.length} events of type ${eventType} to NR`)
-        await axios.post(`https://${INSIGHTS_COLLECTOR}/v1/accounts/${INSIGHTS_WRITE_ACCOUNTID}/events`,
-        payload
-            ,{
-            headers: {
-                "Content-Type": "application/json",
+
+        await got.post(`https://${INSIGHTS_COLLECTOR}/v1/accounts/${INSIGHTS_WRITE_ACCOUNTID}/events`, 
+        {
+            json: payload,
+            headers:    {
                 "X-Insert-Key": INSIGHTS_WRITE_APIKEY
             }
-        })
-        .then(function (response) {
-            console.log(`NR ${eventType} response: ${response.status}`);
+        }).then(function (response) {
+            console.log(`NR ${eventType} response: ${response.statusCode}`);
         })
         .catch(function (error) {
             console.log(error);
         });
+
     } else {
         console.log(`Data send to NR is skipped by configuration`)
     }
@@ -163,31 +176,31 @@ async function NRGQLQuery(nrql,accountId,combineData=false) {
 
     const payload={ query: gqlQuery}
     let returnData=null
-    await axios.post(`https://${GRAPHQL_API}/graphql`,
-            payload,
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'API-Key': GQL_APIKEY
-                }
-            }
-        ).then(function (response) {
-           // console.log(`GQL response status ${response.status}`);
+
+    await got.post(`https://${GRAPHQL_API}/graphql`,{
+        json: payload,
+        headers:    {
+            'API-Key': GQL_APIKEY
+        }
+    }).then(function (response) {
+          //console.log(`GQL response status ${response.statusCode}`);
+          const jsonBody=JSON.parse(response.body);
            if(combineData===true) {
                 let combinedData=[]
                 for(let idx=0; idx < nrql.length; idx++) {
-                    combinedData=[...combinedData, ...response.data.data.actor.account[nrql[idx].label].results ]
+                    combinedData=[...combinedData, ...jsonBody.data.actor.account[nrql[idx].label].results ]
                 }
                 returnData=combinedData
 
            } else {
-            returnData=response.data.data.actor.account
+            returnData=jsonBody.data.actor.account
            }
           })
           .catch(function (error) {
               console.error("GQL response error")
             console.error(error);
           }); 
+
 
         return returnData
 }
@@ -714,7 +727,7 @@ async function processSyntheticData(days,forDate) {
     })
 
 
-    console.log(`Report to new relic ${lastDate} to ${firstDate}`)
+    console.log(`\n\nReport to new relic ${lastDate} to ${firstDate}`)
     await sendDataToNR(NR_DATA_TABLE,NRExtendedPayload)
 
 }
@@ -725,18 +738,13 @@ async function processSyntheticData(days,forDate) {
 // If run outside of a lambda then this calls the script
 
 const run = async () => {
-
     await processSyntheticData(1);      // process last days data
-    //await processSummaryData(false);    // generate summary
-    
-
-    // await processSyntheticData(1,'20240702'); // re-run for specific date (or rather the day before!)
-    // await processSyntheticData(1,'20240701');
-    // await processSyntheticData(1,'20240630');
-    // await processSummaryData(false); 
-
+    await processSummaryData(false);    // generate summary
 }
 
+
+
 run().then(()=>{
-    console.log("done");
+    console.log("Script completed successfully");
+    setAttribute("complete",true); //mark that the script ended safely
 });
