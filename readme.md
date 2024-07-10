@@ -7,6 +7,8 @@ This project contains resources for visualising and processing time based availa
 - [tba-nerdlet](./tba-nerdlet): The nerdlet that runs in NR1
 - [tba-summary-processor](./tba-summary-processor): An (optional) offline processor that generates summary data daily and posts back as a metric
 
+![Screenshot](./screenshot.png)
+
 ## Support
 
 Please use the Github issues facility.
