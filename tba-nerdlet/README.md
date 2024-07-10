@@ -1,4 +1,4 @@
-# Time Based Availability App
+# Time Based Availability Visualisation
 This app visualises availability for a synthetic based upon time rather than events. Once installed access the app via the sub-navigation on any Synthetic entity.
 
 If you intend to visualise mute status then consider adding the [mute status](https://github.com/jsbnr/nr-synthetic-mute-status) code to your synhtetic script. 

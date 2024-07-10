@@ -11,3 +11,6 @@ There are a number of configurable options at the top of the script. Set as nece
 Run with:
 
 `node main.js`
+
+## Running as a synthetic
+You can run this script in a New Relic synthetic. Setup the necessary  API keys as secure credentials.
