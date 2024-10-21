@@ -10,7 +10,7 @@
         "uuid": "a3b04bff-571a-4802-a199-99bab85684e3"
     },
     "dependencies": {
-        "moment": "^2.29.0",
+        "moment": "^2.29.4",
         "prop-types": "^15.6.2",
         "react": "^16.6.3",
         "react-dom": "^16.6.3"
