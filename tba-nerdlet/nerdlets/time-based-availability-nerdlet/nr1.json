@@ -3,6 +3,6 @@
     "id": "time-based-availability-nerdlet",
     "displayName": "Time Based Availability",
     "description": "",
-    "entities": [{ "domain": "SYNTH",  "type": "MONITOR" }],
+    "context": { "entities": [{ "domain": "SYNTH",  "type": "MONITOR" }]},
     "actionCategory": "reports"
 }

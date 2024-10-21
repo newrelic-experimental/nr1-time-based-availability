@@ -14,16 +14,18 @@ const GQL_REGION="US"  // US or EU
 const MONITOR_FILTER_CLAUSE="where monitorName='YourMonitorId'"; // e.g. "where monitorName='MyMonitorToProcess'"
 
 // Other options
-let SEND_DATA_TO_NR=true;    //if false data is processed but not recorded in New Relic
+let SEND_DATA_TO_NR=false;    //if false data is processed but not recorded in New Relic
+let SEND_DATA_TO_NR_AS_METRIC=true;    //if false data is processed but not recorded in New Relic as a metric
 let NR_DATA_TABLE =  "syntheticTBABot"; //The event type to store the data
+const METRICS_PREFIX = "TBA"; //the metrics prefix
 let ACCOUNT_NAME="Not Set" //
-
 
 // End of configuration ---------------------------------
 
 const got = require('got');
 const moment = require('moment');
 const INSIGHTS_COLLECTOR = INSIGHTS_REGION == "EU"? "insights-collector.eu01.nr-data.net" : "insights-collector.newrelic.com";
+const METRIC_INGEST_API = INSIGHTS_REGION == "EU"? "https://metric-api.eu.newrelic.com/metric/v1" : "https://metric-api.newrelic.com/metric/v1";
 const GRAPHQL_API = GQL_REGION == "EU" ? "api.eu.newrelic.com" : "api.newrelic.com";
 
 const STATES = {
@@ -148,6 +150,67 @@ async function sendDataToNR(eventType,data) {
     }
 }
 
+
+/*
+* Send data back to NR via api (Metric)
+*/
+async function sendDataToNRasMetric(metricPrefix,data) {
+    if(SEND_DATA_TO_NR_AS_METRIC) {
+
+
+        // Convert data to metric format. Drop high cardinality dimensions.
+
+        let metricDataPayload=[];
+        const now = Math.round(Date.now()/1000);
+
+        // // count
+        // metricDataPayload.push(data.map((el)=>{ 
+        //     const {count, monitorName, monitorId, location, state, periodEnd, periodStart, periodDurationDays, periodDurationSeconds } = el;
+        //     return {name: metricPrefix+"_count", value: count,"type":"gauge", timestamp: now,attributes: {source: metricPrefix,monitorName, monitorId, location, state, periodEnd, periodStart, periodDurationDays, periodDurationSeconds}};
+        // }));
+
+        //duration milliseconds
+        metricDataPayload.push(data.map((el)=>{ 
+            const {durationMilliSeconds, monitorName, monitorId, location, state, periodEnd, periodStart, periodDurationDays, periodDurationSeconds } = el;
+            return {name: metricPrefix+"_durationMilliSeconds",value: durationMilliSeconds, "type":"gauge", timestamp: now, attributes: {source: metricPrefix, monitorName, monitorId, location, state, periodEnd, periodStart, periodDurationDays, periodDurationSeconds}};
+        }));
+
+        // percent
+        metricDataPayload.push(data.map((el)=>{ 
+            const {percent, monitorName, monitorId, location, state, periodEnd, periodStart, periodDurationDays, periodDurationSeconds } = el;
+            return {name: metricPrefix+"_percent", value: percent, "type":"gauge", timestamp: now, attributes: {source: metricPrefix, monitorName, monitorId, location, state, periodEnd, periodStart, periodDurationDays, periodDurationSeconds}};
+        }));
+
+        
+
+        console.log(`Sending metrics to NR...`);
+
+
+        asyncForEach(metricDataPayload, async (payload)=>{
+
+            await got.post(METRIC_INGEST_API, 
+            {
+                json: [{metrics: payload}],
+                headers:    {
+                    "Api-Key": INSIGHTS_WRITE_APIKEY,
+                    "Content-Type": "application/json"
+                }
+            }).then(function (response) {
+                console.log(`NR response: ${response.statusCode}`);
+            })
+            .catch(function (error) {
+                console.log(error);
+            });
+        }); 
+
+
+
+
+
+    } else {
+        console.log(`Data send to NR as Metric is skipped by configuration`)
+    }
+}
 
 /*
 * Generic GQL query
@@ -727,9 +790,9 @@ async function processSyntheticData(days,forDate) {
     })
 
 
-    console.log(`\n\nReport to new relic ${lastDate} to ${firstDate}`)
-    await sendDataToNR(NR_DATA_TABLE,NRExtendedPayload)
-
+    console.log(`\n\nReport to new relic ${lastDate} to ${firstDate}`);
+    await sendDataToNR(NR_DATA_TABLE,NRExtendedPayload);
+    await sendDataToNRasMetric(METRICS_PREFIX,NRExtendedPayload);
 }
 
 
